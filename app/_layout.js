@@ -24,9 +24,11 @@ if (Platform.OS === 'web' && typeof __DEV__ !== 'undefined' && __DEV__) {
     if (
       typeof message === 'string' &&
       (message.includes('props.pointerEvents is deprecated') ||
-       (message.includes('shadow') && message.includes('boxShadow')))
+       (message.includes('shadow') && message.includes('boxShadow')) ||
+       message.includes('Cross-Origin-Opener-Policy') ||
+       message.includes('window.closed'))
     ) {
-      // react-native-paper 내부 경고는 무시
+      // react-native-paper 내부 경고 및 COOP 경고는 무시 (로그인은 정상 작동)
       return;
     }
     originalWarn(...args);

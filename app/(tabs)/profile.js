@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Card, Surface, Avatar, Divider, Chip, Button } from 'react-native-paper';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuthStore } from '../../src/stores/authStore';
 import { getUserStats } from '../../src/db/statsRepository';
 import { getUserRewards } from '../../src/db/rewardsRepository';
@@ -10,7 +10,10 @@ import { spacing, typography, colors } from '../../src/theme';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, authProvider, signOut: signOutStore } = useAuthStore();
+  // Zustand 스토어에서 상태 구독 (변경 시 자동 리렌더링)
+  const user = useAuthStore((state) => state.user);
+  const authProvider = useAuthStore((state) => state.authProvider);
+  const signOutStore = useAuthStore((state) => state.signOut);
   const [stats, setStats] = useState({
     totalRuns: 0,
     totalDistance: 0,
@@ -21,15 +24,15 @@ export default function ProfileScreen() {
   const [rewards, setRewards] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  // 데이터 로드 함수 (Zustand 스토어에서 최신 상태 가져오기)
+  const loadData = React.useCallback(async () => {
     try {
+      setLoading(true);
+      // 현재 Zustand 스토어에서 최신 user 값 가져오기
+      const currentUser = useAuthStore.getState().user;
       const [statsData, achievedRewards] = await Promise.all([
-        getUserStats(user?.id || null),
-        getUserRewards(user?.id || null),
+        getUserStats(currentUser?.id || null),
+        getUserRewards(currentUser?.id || null),
       ]);
       setStats(statsData);
       
@@ -41,7 +44,60 @@ export default function ProfileScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // 사용자 변경 시 데이터 재로드
+  useEffect(() => {
+    loadData();
+  }, [user, authProvider, loadData]);
+
+  // 화면 포커스 시 상태 확인 및 데이터 로드
+  useFocusEffect(
+    React.useCallback(() => {
+      // AsyncStorage에서 최신 상태 확인하여 Zustand와 동기화
+      const syncAuthState = async () => {
+        try {
+          const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+          const USER_STORAGE_KEY = '@runwave_user';
+          const AUTH_PROVIDER_KEY = '@runwave_auth_provider';
+          
+          const userJson = await AsyncStorage.getItem(USER_STORAGE_KEY);
+          const provider = await AsyncStorage.getItem(AUTH_PROVIDER_KEY);
+          const currentState = useAuthStore.getState();
+          
+          // AsyncStorage에 사용자 정보가 없는데 Zustand에 있으면 강제로 게스트 모드
+          if (!userJson && currentState.user) {
+            console.log('[Profile] AsyncStorage에 사용자 정보 없음 - 강제 게스트 모드로 전환');
+            useAuthStore.setState({ user: null, authProvider: 'guest' });
+          }
+          // AsyncStorage에 사용자 정보가 있으면 Zustand 상태와 동기화
+          else if (userJson) {
+            try {
+              const parsedUser = JSON.parse(userJson);
+              const currentUser = currentState.user;
+              
+              // Zustand의 user와 AsyncStorage의 user가 다르면 동기화
+              if (!currentUser || currentUser.id !== parsedUser.id) {
+                console.log('[Profile] 사용자 정보 동기화:', parsedUser);
+                useAuthStore.setState({ user: parsedUser, authProvider: provider || 'guest' });
+              }
+            } catch (parseError) {
+              console.error('[Profile] 사용자 정보 파싱 오류:', parseError);
+              // 파싱 오류 시 AsyncStorage 정리
+              await AsyncStorage.removeItem(USER_STORAGE_KEY);
+              await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+              useAuthStore.setState({ user: null, authProvider: 'guest' });
+            }
+          }
+        } catch (error) {
+          console.error('[Profile] 상태 동기화 오류:', error);
+        }
+      };
+      
+      syncAuthState();
+      loadData();
+    }, [loadData])
+  );
 
   const formatDistance = (meters) => {
     if (!meters || meters < 1000) return `${Math.round(meters || 0)}m`;
@@ -62,40 +118,108 @@ export default function ProfileScreen() {
   };
 
   const handleSignOut = async () => {
-    Alert.alert(
-      '로그아웃',
-      '정말 로그아웃하시겠습니까?',
-      [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '로그아웃',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // authStore의 signOut이 authService의 signOut도 호출합니다
-              await signOutStore();
-              // 로그인 화면으로 이동
-              router.replace('/login');
-            } catch (error) {
-              console.error('로그아웃 오류:', error);
-              // 오류가 발생해도 로컬 상태는 초기화
-              Alert.alert('로그아웃', '로그아웃되었습니다.', [
-                { text: '확인', onPress: () => router.replace('/login') }
-              ]);
-            }
-          },
-        },
-      ]
-    );
+    // 웹 환경에서는 window.confirm 사용 (Alert가 작동하지 않을 수 있음)
+    const Platform = require('react-native').Platform;
+    let confirmed = false;
+    
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+      confirmed = window.confirm('정말 로그아웃하시겠습니까?');
+      if (!confirmed) return;
+    } else {
+      // 모바일 환경에서는 Alert 사용
+      const result = await new Promise((resolve) => {
+        Alert.alert(
+          '로그아웃',
+          '정말 로그아웃하시겠습니까?',
+          [
+            { 
+              text: '취소', 
+              style: 'cancel',
+              onPress: () => resolve(false)
+            },
+            {
+              text: '로그아웃',
+              style: 'destructive',
+              onPress: () => resolve(true)
+            },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      });
+      if (!result) return;
+      confirmed = true;
+    }
+    
+    if (confirmed) {
+      try {
+        console.log('[Profile] 로그아웃 시작 - 현재 user:', user);
+        
+        // 1. 먼저 Zustand 스토어 상태를 강제로 게스트로 설정 (즉시 UI 업데이트)
+        useAuthStore.setState({ user: null, authProvider: 'guest' });
+        
+        // 2. authStore의 signOut이 authService의 signOut도 호출합니다
+        await signOutStore();
+        
+        // 3. AsyncStorage도 직접 확인하여 확실히 정리
+        try {
+          const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+          await AsyncStorage.removeItem('@runwave_user');
+          await AsyncStorage.removeItem('@runwave_auth_provider');
+          console.log('[Profile] AsyncStorage 정리 완료');
+        } catch (storageError) {
+          console.error('[Profile] AsyncStorage 정리 오류:', storageError);
+        }
+        
+        // 4. 다시 한번 확인하여 확실히 게스트 모드로 설정
+        useAuthStore.setState({ user: null, authProvider: 'guest' });
+        
+        // 5. 상태 업데이트 확인
+        const currentState = useAuthStore.getState();
+        console.log('[Profile] 로그아웃 후 최종 상태:', currentState);
+        
+        // 6. 즉시 데이터 재로드 (게스트 모드로)
+        setLoading(true);
+        await loadData();
+        setLoading(false);
+        
+        console.log('[Profile] 로그아웃 완료 및 데이터 재로드 완료');
+      } catch (error) {
+        console.error('[Profile] 로그아웃 오류:', error);
+        // 오류가 발생해도 강제로 게스트 모드로 설정
+        useAuthStore.setState({ user: null, authProvider: 'guest' });
+        
+        // AsyncStorage 강제 정리
+        try {
+          const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+          await AsyncStorage.removeItem('@runwave_user');
+          await AsyncStorage.removeItem('@runwave_auth_provider');
+        } catch (storageError) {
+          console.error('[Profile] AsyncStorage 강제 정리 오류:', storageError);
+        }
+        
+        setLoading(true);
+        await loadData();
+        setLoading(false);
+      }
+    }
   };
 
   const handleLogin = () => {
     router.push('/login');
   };
 
-  const userName = user?.name || '게스트';
-  const userEmail = user?.email || '';
-  const userPhoto = user?.photoURL || null;
+  // user 상태가 변경될 때마다 재계산되도록 변수로 유지
+  // Zustand에서 user가 변경되면 자동으로 재렌더링됨
+  // user가 null이거나 없으면 게스트 모드로 강제 설정
+  const isGuest = !user || authProvider === 'guest';
+  const userName = isGuest ? '게스트' : (user?.name || '게스트');
+  const userEmail = isGuest ? '' : (user?.email || '');
+  const userPhoto = isGuest ? null : (user?.photoURL || null);
+  
+  // 디버깅: 상태 확인
+  React.useEffect(() => {
+    console.log('[Profile] user 상태 변경:', { user, authProvider, isGuest, userName, userEmail });
+  }, [user, authProvider]);
 
   return (
     <ScrollView style={styles.container}>
@@ -224,7 +348,10 @@ export default function ProfileScreen() {
                 <Card.Content>
                   <Button
                     mode="outlined"
-                    onPress={handleSignOut}
+                    onPress={() => {
+                      console.log('[Profile] 로그아웃 버튼 클릭됨');
+                      handleSignOut();
+                    }}
                     style={styles.signOutButton}
                     textColor={colors.error}
                   >

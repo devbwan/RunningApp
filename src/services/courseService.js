@@ -80,6 +80,24 @@ export const getAllCourses = async (options = {}) => {
     return courses;
   } catch (error) {
     console.error('코스 조회 오류:', error);
+    
+    // Firestore 관련 구체적인 오류 처리
+    if (error.code === 'failed-precondition') {
+      console.warn('Firestore 인덱스가 필요합니다. Firebase Console에서 인덱스를 생성하세요.');
+      console.warn('오류 상세:', error.message);
+    } else if (error.code === 'not-found') {
+      console.warn('Firestore 데이터베이스가 없습니다. Firebase Console에서 데이터베이스를 생성하세요.');
+    } else if (error.code === 'permission-denied') {
+      console.warn('Firestore 접근 권한이 없습니다. Firebase Console에서 보안 규칙을 확인하세요.');
+    } else if (error.code === 'unavailable') {
+      console.warn('Firestore 서비스를 사용할 수 없습니다. 네트워크 연결을 확인하세요.');
+    } else if (error.code === 'invalid-argument') {
+      console.warn('Firestore 쿼리 인자가 잘못되었습니다. 쿼리를 확인하세요.');
+    } else if (error.message?.includes('index')) {
+      console.warn('Firestore 복합 인덱스가 필요합니다. Firebase Console에서 인덱스를 생성하세요.');
+      console.warn('Firebase Console > Firestore Database > Indexes 탭에서 필요한 인덱스를 생성하세요.');
+    }
+    
     return [];
   }
 };
@@ -103,6 +121,17 @@ export const getTop3Courses = async () => {
     return querySnapshot.docs.map(courseFromFirestore);
   } catch (error) {
     console.error('인기 코스 조회 오류:', error);
+    
+    // Firestore 관련 구체적인 오류 처리
+    if (error.code === 'failed-precondition') {
+      console.warn('Firestore 복합 인덱스가 필요합니다: visibility + runnerCount');
+      console.warn('Firebase Console > Firestore Database > Indexes 탭에서 인덱스를 생성하세요.');
+    } else if (error.code === 'not-found') {
+      console.warn('Firestore 데이터베이스가 없습니다.');
+    } else if (error.code === 'permission-denied') {
+      console.warn('Firestore 접근 권한이 없습니다.');
+    }
+    
     return [];
   }
 };
@@ -124,6 +153,14 @@ export const getCourseById = async (courseId) => {
     return null;
   } catch (error) {
     console.error('코스 상세 조회 오류:', error);
+    
+    // Firestore 관련 구체적인 오류 처리
+    if (error.code === 'not-found') {
+      console.warn('코스를 찾을 수 없습니다.');
+    } else if (error.code === 'permission-denied') {
+      console.warn('Firestore 접근 권한이 없습니다.');
+    }
+    
     return null;
   }
 };
@@ -196,6 +233,17 @@ export const getUserCourses = async (userId) => {
     return querySnapshot.docs.map(courseFromFirestore);
   } catch (error) {
     console.error('사용자 코스 조회 오류:', error);
+    
+    // Firestore 관련 구체적인 오류 처리
+    if (error.code === 'failed-precondition') {
+      console.warn('Firestore 복합 인덱스가 필요합니다: userId + createdAt');
+      console.warn('Firebase Console > Firestore Database > Indexes 탭에서 인덱스를 생성하세요.');
+    } else if (error.code === 'not-found') {
+      console.warn('Firestore 데이터베이스가 없습니다.');
+    } else if (error.code === 'permission-denied') {
+      console.warn('Firestore 접근 권한이 없습니다.');
+    }
+    
     return [];
   }
 };

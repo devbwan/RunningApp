@@ -4,6 +4,8 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   OAuthProvider,
 } from 'firebase/auth';
 import { auth, isValidFirebaseConfig } from '../config/firebase';
@@ -35,18 +37,55 @@ export const signInWithGoogle = async () => {
       provider.addScope('profile');
       provider.addScope('email');
       
-      const result = await signInWithPopup(auth, provider);
-      const user = {
-        id: result.user.uid,
-        email: result.user.email,
-        name: result.user.displayName,
-        photoURL: result.user.photoURL,
-      };
-
-      await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
-      await AsyncStorage.setItem(AUTH_PROVIDER_KEY, 'google');
+      // 먼저 redirect 결과 확인 (이전에 redirect로 시작한 경우)
+      try {
+        const redirectResult = await getRedirectResult(auth);
+        if (redirectResult) {
+          const user = {
+            id: redirectResult.user.uid,
+            email: redirectResult.user.email,
+            name: redirectResult.user.displayName,
+            photoURL: redirectResult.user.photoURL,
+          };
+          await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+          await AsyncStorage.setItem(AUTH_PROVIDER_KEY, 'google');
+          return user;
+        }
+      } catch (redirectError) {
+        // redirect 결과가 없거나 오류가 발생한 경우 무시하고 popup 사용
+        if (__DEV__) {
+          console.log('[Auth] Redirect 결과 없음, popup 사용:', redirectError);
+        }
+      }
       
-      return user;
+      // popup 방식 사용 (COOP 경고는 무시 - 실제 로그인은 정상 작동)
+      try {
+        const result = await signInWithPopup(auth, provider);
+        const user = {
+          id: result.user.uid,
+          email: result.user.email,
+          name: result.user.displayName,
+          photoURL: result.user.photoURL,
+        };
+
+        await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+        await AsyncStorage.setItem(AUTH_PROVIDER_KEY, 'google');
+        
+        return user;
+      } catch (popupError) {
+        // popup이 차단되거나 COOP 오류가 발생한 경우 redirect 사용
+        if (popupError.code === 'auth/popup-blocked' || popupError.code === 'auth/popup-closed-by-user') {
+          if (__DEV__) {
+            console.log('[Auth] Popup 차단됨, redirect 사용');
+          }
+          // redirect 방식으로 전환
+          await signInWithRedirect(auth, provider);
+          // redirect는 페이지를 이동하므로 여기서는 null 반환
+          // 실제 로그인은 redirect 후 getRedirectResult에서 처리됨
+          throw new Error('로그인을 위해 리디렉션 중입니다. 잠시 후 다시 시도해주세요.');
+        }
+        throw popupError;
+      }
     } else {
       // 모바일 환경에서는 expo-auth-session 사용 필요
       // 현재는 기본 구조만 제공
@@ -70,29 +109,6 @@ export const signInWithGoogle = async () => {
       throw new Error('Firebase Console에서 Google 인증을 활성화해주세요.');
     }
     
-    throw error;
-  }
-};
-
-// 네이버 로그인
-export const signInWithNaver = async () => {
-  if (!auth) {
-    throw new Error('Firebase Auth가 초기화되지 않았습니다.');
-  }
-
-  try {
-    // 네이버는 Firebase Auth에서 직접 지원하지 않으므로
-    // 커스텀 OAuth 구현이 필요합니다
-    // 간단한 구현: 웹뷰를 사용한 OAuth 플로우
-    
-    if (Platform.OS === 'web') {
-      throw new Error('네이버 로그인은 Firebase Custom Auth 또는 네이버 SDK를 통한 별도 구현이 필요합니다.');
-    } else {
-      // 모바일에서는 네이버 SDK 사용 필요
-      throw new Error('네이버 로그인은 네이버 SDK 설치 및 설정이 필요합니다.');
-    }
-  } catch (error) {
-    console.error('네이버 로그인 오류:', error);
     throw error;
   }
 };
