@@ -62,7 +62,7 @@ export default function ProfileScreen() {
     return `${kmh.toFixed(1)} km/h`;
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     Alert.alert(
       '로그아웃',
       '정말 로그아웃하시겠습니까?',
@@ -73,12 +73,19 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Firebase 로그아웃
               await signOut();
-              signOutStore();
-              router.replace('/login');
+              // Zustand 스토어 로그아웃
+              await signOutStore();
+              // 로그인 화면으로 이동
+              router.push('/login');
             } catch (error) {
               console.error('로그아웃 오류:', error);
-              Alert.alert('오류', '로그아웃 중 오류가 발생했습니다.');
+              // 오류가 발생해도 로컬 상태는 초기화
+              await signOutStore();
+              Alert.alert('로그아웃', '로그아웃되었습니다.', [
+                { text: '확인', onPress: () => router.push('/login') }
+              ]);
             }
           },
         },

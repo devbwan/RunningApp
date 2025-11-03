@@ -46,7 +46,7 @@ const courseFromFirestore = (doc) => {
 // 모든 코스 조회
 export const getAllCourses = async (options = {}) => {
   if (!db) {
-    console.warn('Firestore가 초기화되지 않았습니다.');
+    console.warn('Firestore가 초기화되지 않았습니다. 로컬 데이터를 사용합니다.');
     return [];
   }
 

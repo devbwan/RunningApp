@@ -60,6 +60,11 @@ export const signInWithGoogle = async () => {
       throw new Error('Firebase API 키가 유효하지 않습니다.\n\nsrc/config/firebase.js 파일에 Firebase Console에서 복사한 실제 API 키를 입력하세요.');
     }
     
+    // CONFIGURATION_NOT_FOUND 오류 처리
+    if (error.code === 400 || error.message?.includes('CONFIGURATION_NOT_FOUND')) {
+      throw new Error('Firebase Console에서 Google 인증을 활성화해주세요.\n\n1. Firebase Console 접속\n2. Authentication 메뉴 클릭\n3. Sign-in method 탭 클릭\n4. Google 제공업체 클릭\n5. "사용 설정" 토글 켜기\n6. 저장 클릭');
+    }
+    
     // Firebase 설정이 안 된 경우 더 친절한 메시지
     if (error.message?.includes('Firebase') || error.code === 'auth/operation-not-allowed') {
       throw new Error('Firebase Console에서 Google 인증을 활성화해주세요.');
@@ -94,17 +99,36 @@ export const signInWithNaver = async () => {
 
 // 로그아웃
 export const signOut = async () => {
-  if (auth) {
-    try {
-      await firebaseSignOut(auth);
-    } catch (error) {
-      console.error('Firebase 로그아웃 오류:', error);
+  try {
+    // Firebase 로그아웃
+    if (auth) {
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await firebaseSignOut(auth);
+        }
+      } catch (error) {
+        console.error('Firebase 로그아웃 오류:', error);
+        // Firebase 오류가 있어도 로컬 로그아웃은 진행
+      }
     }
-  }
 
-  // AsyncStorage에서 사용자 정보 제거
-  await AsyncStorage.removeItem(USER_STORAGE_KEY);
-  await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+    // AsyncStorage에서 사용자 정보 제거
+    await AsyncStorage.removeItem(USER_STORAGE_KEY);
+    await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+    
+    console.log('로그아웃 완료');
+  } catch (error) {
+    console.error('로그아웃 중 오류:', error);
+    // 오류가 발생해도 AsyncStorage는 정리 시도
+    try {
+      await AsyncStorage.removeItem(USER_STORAGE_KEY);
+      await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+    } catch (storageError) {
+      console.error('AsyncStorage 정리 오류:', storageError);
+    }
+    throw error;
+  }
 };
 
 // 현재 사용자 가져오기

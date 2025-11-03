@@ -2,6 +2,7 @@
   "expo": {
     "name": "ai-running-app",
     "slug": "ai-running-app",
+    "scheme": "runwave",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
