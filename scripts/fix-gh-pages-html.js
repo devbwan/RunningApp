@@ -25,5 +25,11 @@ htmlContent = htmlContent.replace(/src="\/([^"]+)"/g, 'src="./$1"');
 htmlContent = htmlContent.replace(/(href|src)="\/([^\/"])/g, '$1="./$2');
 
 fs.writeFileSync(indexHtmlPath, htmlContent, 'utf8');
+
+// .nojekyll 파일 생성 (GitHub Pages에서 _로 시작하는 파일/폴더를 숨기지 않도록)
+const nojekyllPath = path.join(webBuildDir, '.nojekyll');
+fs.writeFileSync(nojekyllPath, '', 'utf8');
+
 console.log('✅ index.html 경로 수정 완료');
+console.log('✅ .nojekyll 파일 생성 완료 (GitHub Pages Jekyll 처리 비활성화)');
 

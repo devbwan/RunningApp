@@ -14,10 +14,10 @@
     "web:local": "npm run env:local && npm run web",
     "android:setup": "npm run env:android && npm run android",
     "env:local": "node -e \"const fs = require('fs'); if (fs.existsSync('.env.local')) { fs.copyFileSync('.env.local', '.env'); console.log('✅ .env.local 파일을 .env로 복사했습니다.'); } else { console.error('❌ .env.local 파일이 없습니다. .env.local.example을 참고하여 생성하세요.'); }\"",
-    "build:web": "npm run env:web && expo export --output-dir web-build --platform web",
+    "build:web": "npm run env:web && cross-env EXPO_PUBLIC_BASE_PATH=/RunningApp expo export --output-dir web-build --platform web",
     "fix:gh-pages": "node scripts/fix-gh-pages-html.js",
     "predeploy": "npm run build:web && npm run fix:gh-pages",
-    "deploy": "gh-pages -d web-build -r https://github.com/devbwan/RunningApp.git"
+    "deploy": "gh-pages -d web-build -r https://github.com/devbwan/RunningApp.git --dotfiles"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -53,6 +53,7 @@
     "@types/react-native": "^0.73.0",
     "@types/uuid": "^11.0.0",
     "babel-preset-expo": "~12.0.1",
+    "cross-env": "^10.1.0",
     "gh-pages": "^6.3.0",
     "typescript": "^5.9.3"
   }
