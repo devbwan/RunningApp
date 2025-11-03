@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCurrentUser, onAuthStateChange } from '../services/authService';
+import { getCurrentUser, onAuthStateChange, signOut as authServiceSignOut } from '../services/authService';
 
 const USER_STORAGE_KEY = '@runwave_user';
 const AUTH_PROVIDER_KEY = '@runwave_auth_provider';
@@ -54,8 +54,20 @@ export const useAuthStore = create((set, get) => ({
   },
 
   signOut: async () => {
-    await AsyncStorage.removeItem(USER_STORAGE_KEY);
-    await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+    try {
+      // Firebase 로그아웃 및 AsyncStorage 정리
+      await authServiceSignOut();
+    } catch (error) {
+      console.error('authService 로그아웃 오류:', error);
+      // 오류가 발생해도 로컬 상태는 초기화
+      try {
+        await AsyncStorage.removeItem(USER_STORAGE_KEY);
+        await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+      } catch (storageError) {
+        console.error('AsyncStorage 정리 오류:', storageError);
+      }
+    }
+    // Zustand 스토어 상태 초기화
     set({ user: null, authProvider: 'guest' });
   },
 }));

@@ -27,11 +27,17 @@
 - ✅ `src/hooks/useRunningTracker.js`
 
 ### 데이터베이스
-- ✅ `src/db/database.js` - SQLite 초기화
-- ✅ `src/db/sessionRepository.js` - 러닝 세션 저장/조회
-- ✅ `src/db/statsRepository.js` - 누적 통계
-- ✅ `src/db/todayStatsRepository.js` - 오늘/주간 통계
-- ✅ `src/db/rewardsRepository.js` - 메달 저장/조회
+- ✅ `src/db/database.js` - SQLite 초기화 (웹: AsyncStorage 사용)
+- ✅ `src/db/sessionRepository.js` - 러닝 세션 저장/조회 (플랫폼별 분리)
+- ✅ `src/db/statsRepository.js` - 누적 통계 (플랫폼별 분리)
+- ✅ `src/db/todayStatsRepository.js` - 오늘/주간 통계 (플랫폼별 분리)
+- ✅ `src/db/rewardsRepository.js` - 메달 저장/조회 (플랫폼별 분리)
+
+### 인증 및 서비스
+- ✅ `src/config/firebase.js` - Firebase 설정 (웹/모바일 분리)
+- ✅ `src/services/authService.js` - 인증 서비스 (Google 로그인)
+- ✅ `src/services/courseService.js` - 코스 서비스
+- ✅ `src/stores/authStore.js` - 인증 상태 관리 (Firebase + AsyncStorage 동기화)
 
 ### 유틸리티
 - ✅ `src/utils/rewardSystem.js` - 메달 시스템
@@ -62,44 +68,64 @@
 - ✅ `react-native-screens`
 - ✅ `@expo/vector-icons`
 
+### 인증 및 클라우드
+- ✅ `firebase` - Firebase Auth 및 Firestore
+- ✅ `expo-auth-session` - OAuth 인증
+- ✅ `expo-web-browser` - 웹 브라우저 연동
+- ✅ `@react-native-async-storage/async-storage` - 로컬 저장소
+
 ## 기능 체크리스트 ✅
 
 ### ✅ 완료된 기능
 1. **탭 네비게이션** - 5개 탭 (홈/러닝/기록/코스/프로필)
 2. **GPS 추적** - 실시간 위치 추적 및 경로 저장
 3. **러닝 기능** - 시작/일시정지/재개/종료
-4. **데이터 저장** - SQLite에 러닝 세션 저장
+4. **데이터 저장** - SQLite (모바일) / AsyncStorage (웹)에 러닝 세션 저장
 5. **통계 표시** - 오늘/주간/누적 통계
 6. **메달 시스템** - 19개 메달, 진행도 표시
 7. **세션 상세** - 지도 경로 및 상세 정보
 8. **프로필** - 사용자 통계 및 메달
+9. **인증 시스템** - 게스트 모드 및 Google 로그인 (Firebase Auth)
+10. **로그아웃** - Firebase 및 로컬 상태 동기화
+11. **웹 배포** - GitHub Pages 배포 완료 (https://devbwan.github.io/)
+12. **환경 변수** - 웹/Android/로컬 환경 분리
+
+### 🚧 개발 중
+1. **네이버 로그인** - OAuth 구현 중
+2. **Firestore 연동** - 코스 데이터 클라우드 저장 (구현 중)
 
 ### ⏳ TODO 항목
-1. Firebase 연동 (Firestore 코스 데이터)
-2. 인증 시스템 (Google/네이버 로그인)
-3. 그룹 러닝 (Socket.IO)
-4. 음성 가이드 (1km 알림)
-5. 코스 상세 화면
+1. 그룹 러닝 (Socket.IO)
+2. 음성 가이드 (1km 알림)
+3. 코스 상세 화면 (지도 표시)
+4. 게스트→인증 데이터 병합
 
 ## 테스트 방법
 
 ### 웹 환경에서 테스트
 ```bash
-npm run web
+# 환경 변수 설정 후 실행
+npm run web:setup    # .env.web 사용
+# 또는
+npm run web:local   # .env.local 사용
 ```
+
 - 브라우저에서 http://localhost:8081 또는 표시된 URL 접속
 - 탭 네비게이션 동작 확인
 - 각 화면 UI 렌더링 확인
+- Google 로그인 테스트
 - **참고**: 웹에서는 GPS 기능이 제한적입니다
 
 ### 모바일 환경에서 테스트 (권장)
 ```bash
-# Android
-npm run android
+# Android (환경 변수 설정 포함)
+npm run android:setup
 
 # iOS
 npm run ios
 ```
+
+**주의**: Android 실행 전 `.env.android` 파일 설정 필요
 
 ### 실제 테스트 시나리오
 1. **러닝 시작**
@@ -128,6 +154,11 @@ npm run ios
    - 프로필 탭에서 메달 진행도 확인
    - 조건 달성 시 메달 획득 알림 확인
 
+7. **인증 테스트**
+   - 로그인 화면에서 게스트 모드 선택
+   - Google 로그인 테스트 (Firebase 설정 필요)
+   - 로그아웃 후 새로고침 시 게스트 모드 확인
+
 ## 알려진 제한사항
 
 ### 웹 환경
@@ -152,12 +183,36 @@ npm run ios
 - 지도 표시 (react-native-maps)
 - 백그라운드 위치 업데이트
 
+## 배포 상태
+
+### ✅ 배포 완료
+- **GitHub Pages**: https://devbwan.github.io/
+- **배포 방식**: `gh-pages` 브랜치 자동 배포
+- **빌드 스크립트**: `npm run deploy`
+
+### 배포 테스트 체크리스트
+- [x] 환경 변수 설정 (.env.web)
+- [x] 웹 빌드 성공
+- [x] 절대 경로 → 상대 경로 변환
+- [x] .nojekyll 파일 생성
+- [x] 아이콘 및 자산 경로 수정
+- [x] 배포 후 정상 작동 확인
+- [x] Google 로그인 테스트 (도메인 인증 필요)
+
 ## 다음 단계
 
-1. **Firebase 설정** - 코스 데이터 클라우드 동기화
-2. **인증 구현** - Google/네이버 로그인
-3. **그룹 러닝** - Socket.IO 서버 구축 및 클라이언트 연동
-4. **음성 가이드** - Text-to-Speech API 연동
-5. **코스 상세** - 코스 정보 화면 구현
+1. ✅ **Firebase 설정** - Firebase Auth 구현 완료
+2. 🚧 **Firestore 연동** - 코스 데이터 클라우드 동기화 (구현 중)
+3. 🚧 **네이버 로그인** - OAuth 구현 중
+4. **그룹 러닝** - Socket.IO 서버 구축 및 클라이언트 연동
+5. **음성 가이드** - Text-to-Speech API 연동
+6. **코스 상세** - 코스 정보 화면 구현
+7. **게스트→인증 전환** - 데이터 병합 기능
+
+---
+
+**최종 업데이트**: 2024년
+**테스트 상태**: ✅ 핵심 기능 테스트 완료
+**배포 상태**: ✅ GitHub Pages 배포 완료
 
 

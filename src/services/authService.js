@@ -100,6 +100,10 @@ export const signInWithNaver = async () => {
 // 로그아웃
 export const signOut = async () => {
   try {
+    // AsyncStorage에서 사용자 정보 제거 (먼저 제거하여 새로고침 시 복원 방지)
+    await AsyncStorage.removeItem(USER_STORAGE_KEY);
+    await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+    
     // Firebase 로그아웃
     if (auth) {
       try {
@@ -112,10 +116,6 @@ export const signOut = async () => {
         // Firebase 오류가 있어도 로컬 로그아웃은 진행
       }
     }
-
-    // AsyncStorage에서 사용자 정보 제거
-    await AsyncStorage.removeItem(USER_STORAGE_KEY);
-    await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
     
     console.log('로그아웃 완료');
   } catch (error) {
@@ -127,6 +127,14 @@ export const signOut = async () => {
     } catch (storageError) {
       console.error('AsyncStorage 정리 오류:', storageError);
     }
+    // Firebase 로그아웃은 오류가 있어도 시도
+    try {
+      if (auth?.currentUser) {
+        await firebaseSignOut(auth);
+      }
+    } catch (firebaseError) {
+      console.error('Firebase 로그아웃 오류 (재시도):', firebaseError);
+    }
     throw error;
   }
 };
@@ -134,20 +142,64 @@ export const signOut = async () => {
 // 현재 사용자 가져오기
 export const getCurrentUser = async () => {
   try {
+    // Firebase Auth 상태 확인
+    const firebaseUser = auth?.currentUser;
+    
+    // AsyncStorage에서 사용자 정보 확인
     const userJson = await AsyncStorage.getItem(USER_STORAGE_KEY);
     const provider = await AsyncStorage.getItem(AUTH_PROVIDER_KEY);
 
+    // Firebase Auth에 사용자가 있지만 AsyncStorage에 없는 경우 (로그아웃 후 새로고침 시나리오)
+    if (firebaseUser && !userJson) {
+      // Firebase Auth만 있고 AsyncStorage에는 없는 경우 - 로그아웃 처리
+      // 이는 로그아웃 후 Firebase Auth 세션이 남아있는 경우를 처리
+      try {
+        await firebaseSignOut(auth);
+      } catch (error) {
+        console.warn('Firebase Auth 세션 정리 오류:', error);
+      }
+      return { user: null, provider: 'guest' };
+    }
+
+    // AsyncStorage에 사용자 정보가 있는 경우
     if (userJson) {
+      const parsedUser = JSON.parse(userJson);
+      
+      // Firebase Auth와 AsyncStorage가 모두 있는 경우 동기화
+      if (firebaseUser && firebaseUser.uid === parsedUser.id) {
+        return {
+          user: parsedUser,
+          provider: provider || 'guest',
+        };
+      }
+      
+      // AsyncStorage에만 있고 Firebase Auth에는 없는 경우 (비정상 상태)
+      // Firebase Auth 세션이 만료된 경우로 간주하고 AsyncStorage 정리
+      if (!firebaseUser) {
+        await AsyncStorage.removeItem(USER_STORAGE_KEY);
+        await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+        return { user: null, provider: 'guest' };
+      }
+      
       return {
-        user: JSON.parse(userJson),
+        user: parsedUser,
         provider: provider || 'guest',
       };
     }
+
+    // 둘 다 없는 경우 - 게스트 모드
+    return { user: null, provider: 'guest' };
   } catch (error) {
     console.error('사용자 정보 가져오기 오류:', error);
+    // 오류 발생 시 AsyncStorage 정리 시도
+    try {
+      await AsyncStorage.removeItem(USER_STORAGE_KEY);
+      await AsyncStorage.removeItem(AUTH_PROVIDER_KEY);
+    } catch (storageError) {
+      console.error('AsyncStorage 정리 오류:', storageError);
+    }
+    return { user: null, provider: 'guest' };
   }
-
-  return { user: null, provider: 'guest' };
 };
 
 // 인증 상태 리스너 설정

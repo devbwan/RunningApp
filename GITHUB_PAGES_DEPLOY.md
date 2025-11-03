@@ -1,11 +1,12 @@
 # GitHub Pages 배포 가이드
 
-이 프로젝트를 GitHub Pages (https://devbwan.github.io/RunningApp/)에 배포하는 방법입니다.
+이 프로젝트를 GitHub Pages (**https://devbwan.github.io/**)에 배포하는 방법입니다.
 
 ## 📋 사전 준비
 
 1. GitHub 저장소에 이미 코드가 푸시되어 있어야 합니다.
-2. `devbwan/RunningApp` 저장소가 존재해야 합니다.
+2. `devbwan/devbwan.github.io` 저장소가 존재해야 합니다 (사용자 페이지).
+3. `.env.web` 파일에 Firebase 설정이 완료되어 있어야 합니다.
 
 ## 🚀 배포 방법
 
@@ -38,23 +39,27 @@ npm run deploy
 
 ## ⚙️ 설정 정보
 
-- **배포 URL**: https://devbwan.github.io/RunningApp/
+- **배포 URL**: https://devbwan.github.io/
+- **저장소**: `devbwan/devbwan.github.io` (사용자 페이지)
 - **빌드 디렉토리**: `web-build`
 - **GitHub 브랜치**: `gh-pages` (자동 생성)
 
 ## ⚠️ 중요: GitHub Pages Source 설정
 
-배포 후 **반드시 GitHub 저장소 설정을 변경**해야 합니다:
+`devbwan.github.io` 저장소를 사용하는 경우 (사용자 페이지):
+- Source는 자동으로 설정됩니다.
+- `gh-pages` 브랜치의 루트 디렉토리가 자동으로 서빙됩니다.
 
-1. https://github.com/devbwan/RunningApp 접속
+프로젝트 페이지를 사용하는 경우:
+1. https://github.com/devbwan/[repository-name] 접속
 2. **Settings** > **Pages** 메뉴 클릭
 3. **Source** 설정:
    - **Deploy from a branch** 선택
-   - **Branch**: `gh-pages` 선택 ⚠️ (현재 `master`로 되어 있으면 변경 필요)
+   - **Branch**: `gh-pages` 선택
    - **Folder**: `/ (root)` 선택
 4. **Save** 클릭
 
-자세한 내용은 [GITHUB_PAGES_CONFIG.md](./GITHUB_PAGES_CONFIG.md) 참고
+자세한 내용은 [GITHUB_PAGES_ROOT_ACCESS.md](./GITHUB_PAGES_ROOT_ACCESS.md) 참고
 
 ## 🔧 문제 해결
 

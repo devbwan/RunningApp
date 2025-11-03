@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Card, Surface, Avatar, Divider, Chip, Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/stores/authStore';
-import { signOut } from '../../src/services/authService';
 import { getUserStats } from '../../src/db/statsRepository';
 import { getUserRewards } from '../../src/db/rewardsRepository';
 import { checkRewards } from '../../src/utils/rewardSystem';
@@ -73,18 +72,15 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Firebase 로그아웃
-              await signOut();
-              // Zustand 스토어 로그아웃
+              // authStore의 signOut이 authService의 signOut도 호출합니다
               await signOutStore();
               // 로그인 화면으로 이동
-              router.push('/login');
+              router.replace('/login');
             } catch (error) {
               console.error('로그아웃 오류:', error);
               // 오류가 발생해도 로컬 상태는 초기화
-              await signOutStore();
               Alert.alert('로그아웃', '로그아웃되었습니다.', [
-                { text: '확인', onPress: () => router.push('/login') }
+                { text: '확인', onPress: () => router.replace('/login') }
               ]);
             }
           },
