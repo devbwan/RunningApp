@@ -11,6 +11,7 @@ import { saveRunningSession } from '../../src/db/sessionRepository';
 import { getUserStats } from '../../src/db/statsRepository';
 import { getUserRewards, saveReward } from '../../src/db/rewardsRepository';
 import { syncRunningSession } from '../../src/services/sessionSyncService';
+import { saveRunningSessionToHealth } from '../../src/services/healthService';
 import { checkRewards } from '../../src/utils/rewardSystem';
 import { spacing, typography } from '../../src/theme';
 
@@ -19,7 +20,9 @@ export default function RunScreen() {
   const params = useLocalSearchParams();
   const { granted, status } = useLocationPermission();
   const { start, pause, resume, stop } = useRunningTracker();
-  const { isRunning, isPaused, distance, duration, pace, maxSpeed, route, startTime } = useRunStore();
+  const { isRunning, isPaused, distance, duration, pace, maxSpeed, route, startTime, cadence } = useRunStore();
+  const [avgPace, setAvgPace] = useState(0);
+  const [calories, setCalories] = useState(0);
   const { user } = useAuthStore();
   const [saving, setSaving] = useState(false);
   const [courseMode, setCourseMode] = useState(false);
@@ -80,11 +83,41 @@ export default function RunScreen() {
   const calculateCalories = (distance, duration) => {
     // 간단한 칼로리 계산 공식 (몸무게 70kg 기준, 러닝 속도 10km/h 가정)
     const weight = 70; // kg
-    const speed = distance / (duration / 3600); // m/s를 km/h로 변환
-    const met = 6; // 러닝 MET 값
+    const speed = duration > 0 ? (distance / 1000) / (duration / 3600) : 0; // km/h
+    // MET 값은 속도에 따라 달라짐 (5km/h: 8, 8km/h: 11.5, 10km/h: 14.5)
+    let met = 6;
+    if (speed < 6) met = 8;
+    else if (speed < 8) met = 9.5;
+    else if (speed < 10) met = 11.5;
+    else met = 14.5;
+    
     const calories = (weight * met * duration) / 3600;
     return Math.round(calories);
   };
+
+  const formatCadence = (stepsPerMin) => {
+    if (!stepsPerMin || stepsPerMin === 0) return '--';
+    return `${stepsPerMin}`;
+  };
+
+  // 평균 페이스 및 칼로리 실시간 업데이트
+  useEffect(() => {
+    if (isRunning && duration > 0 && distance > 0) {
+      // 평균 페이스 계산
+      const avgPaceValue = Math.round((duration / distance) * 1000);
+      setAvgPace(avgPaceValue);
+      
+      // 칼로리 계산
+      const cal = calculateCalories(distance, duration);
+      setCalories(cal);
+      
+      // 캐던스 업데이트
+      useRunStore.getState().updateCadence();
+    } else if (!isRunning) {
+      setAvgPace(0);
+      setCalories(0);
+    }
+  }, [isRunning, distance, duration]);
 
   const handleStart = () => {
     start();
@@ -134,7 +167,8 @@ export default function RunScreen() {
             setSaving(true);
             try {
               const endTime = Date.now();
-              const calories = calculateCalories(distance, duration);
+              const caloriesValue = calculateCalories(distance, duration);
+              const finalAvgPace = avgPace > 0 ? avgPace : (pace > 0 ? pace : null);
               
               // 로컬 저장
               const sessionId = await saveRunningSession(
@@ -143,9 +177,10 @@ export default function RunScreen() {
                   type: 'solo',
                   distance,
                   duration,
-                  avgPace: pace > 0 ? pace : null,
+                  avgPace: finalAvgPace,
                   maxSpeed: maxSpeed > 0 ? maxSpeed : null,
-                  calories,
+                  calories: caloriesValue,
+                  cadence: cadence > 0 ? cadence : null,
                   startTime: Math.floor(startTime / 1000),
                   endTime: Math.floor(endTime / 1000),
                 },
@@ -161,9 +196,10 @@ export default function RunScreen() {
                       type: 'solo',
                       distance,
                       duration,
-                      avgPace: pace > 0 ? pace : null,
+                      avgPace: finalAvgPace,
                       maxSpeed: maxSpeed > 0 ? maxSpeed : null,
-                      calories,
+                      calories: caloriesValue,
+                      cadence: cadence > 0 ? cadence : null,
                       startTime: Math.floor(startTime / 1000),
                       endTime: Math.floor(endTime / 1000),
                     },
@@ -172,6 +208,26 @@ export default function RunScreen() {
                 } catch (syncError) {
                   console.warn('클라우드 동기화 실패 (로컬 저장은 완료):', syncError);
                 }
+              }
+
+              // 건강 앱 동기화 (선택적)
+              try {
+                const healthResult = await saveRunningSessionToHealth({
+                  distance,
+                  duration,
+                  calories: caloriesValue,
+                  startTime: Math.floor(startTime / 1000),
+                  endTime: Math.floor(endTime / 1000),
+                  avgPace: finalAvgPace,
+                  cadence: cadence > 0 ? cadence : null,
+                });
+                if (healthResult.success) {
+                  console.log('건강 앱 동기화 완료');
+                } else if (healthResult.needsSetup) {
+                  console.log('건강 앱 연동 설정 필요:', healthResult.message);
+                }
+              } catch (healthError) {
+                console.warn('건강 앱 동기화 실패 (로컬 저장은 완료):', healthError);
               }
 
               // 메달 체크
@@ -199,13 +255,41 @@ export default function RunScreen() {
                   '메달 획득! 🎉',
                   `${rewardTitles} 메달을 획득하셨습니다!`,
                   [
+                    { 
+                      text: '코스로 업로드', 
+                      onPress: () => {
+                        router.push({
+                          pathname: '/(tabs)/courses',
+                          params: { 
+                            uploadRoute: JSON.stringify(route),
+                            uploadDistance: distance.toString(),
+                          },
+                        });
+                      },
+                    },
                     { text: '확인', onPress: () => router.push('/(tabs)/records') },
                   ]
                 );
               } else {
-                Alert.alert('저장 완료', '러닝 기록이 저장되었습니다.', [
-                  { text: '확인', onPress: () => router.push('/(tabs)/records') },
-                ]);
+                Alert.alert(
+                  '저장 완료', 
+                  '러닝 기록이 저장되었습니다.',
+                  [
+                    { 
+                      text: '코스로 업로드', 
+                      onPress: () => {
+                        router.push({
+                          pathname: '/(tabs)/courses',
+                          params: { 
+                            uploadRoute: JSON.stringify(route),
+                            uploadDistance: distance.toString(),
+                          },
+                        });
+                      },
+                    },
+                    { text: '확인', onPress: () => router.push('/(tabs)/records') },
+                  ]
+                );
               }
             } catch (error) {
               console.error('저장 실패:', error);
@@ -250,6 +334,22 @@ export default function RunScreen() {
                 <Text style={styles.statValue}>{formatPace(pace)}</Text>
               </View>
             </View>
+            {isRunning && (
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statLabel}>평균 페이스</Text>
+                  <Text style={styles.statValue}>{formatPace(avgPace)}</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={styles.statLabel}>칼로리</Text>
+                  <Text style={styles.statValue}>{calories} kcal</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={styles.statLabel}>캐던스</Text>
+                  <Text style={styles.statValue}>{formatCadence(cadence)} spm</Text>
+                </View>
+              </View>
+            )}
           </Surface>
 
           <View style={styles.controlsContainer}>
@@ -323,6 +423,7 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    marginBottom: spacing.sm,
   },
   statItem: {
     alignItems: 'center',

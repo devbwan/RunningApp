@@ -6,6 +6,11 @@ import { useAuthStore } from '../../src/stores/authStore';
 import { getUserStats } from '../../src/db/statsRepository';
 import { getUserRewards } from '../../src/db/rewardsRepository';
 import { checkRewards } from '../../src/utils/rewardSystem';
+import { 
+  isHealthAppAvailable, 
+  requestHealthPermissions, 
+  checkHealthAppStatus 
+} from '../../src/services/healthService';
 import { spacing, typography, colors } from '../../src/theme';
 
 export default function ProfileScreen() {
@@ -23,6 +28,8 @@ export default function ProfileScreen() {
   });
   const [rewards, setRewards] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [healthAppStatus, setHealthAppStatus] = useState({ available: false, connected: false });
+  const [healthAppConnecting, setHealthAppConnecting] = useState(false);
 
   // 데이터 로드 함수 (Zustand 스토어에서 최신 상태 가져오기)
   const loadData = React.useCallback(async () => {
@@ -221,6 +228,50 @@ export default function ProfileScreen() {
     console.log('[Profile] user 상태 변경:', { user, authProvider, isGuest, userName, userEmail });
   }, [user, authProvider]);
 
+  // 건강 앱 상태 확인
+  useEffect(() => {
+    const checkHealthStatus = async () => {
+      if (isHealthAppAvailable()) {
+        const status = await checkHealthAppStatus();
+        setHealthAppStatus(status);
+      }
+    };
+    checkHealthStatus();
+  }, []);
+
+  // 건강 앱 연동 처리
+  const handleHealthAppConnect = async () => {
+    if (!isHealthAppAvailable()) {
+      Alert.alert('알림', '웹에서는 건강 앱 연동을 지원하지 않습니다.');
+      return;
+    }
+
+    setHealthAppConnecting(true);
+    try {
+      const result = await requestHealthPermissions();
+      if (result.granted) {
+        Alert.alert('연동 완료', '건강 앱과 연동되었습니다.');
+        const status = await checkHealthAppStatus();
+        setHealthAppStatus(status);
+      } else if (result.needsSetup) {
+        Alert.alert(
+          '설정 필요',
+          result.message + '\n\n네이티브 모듈 설정이 필요합니다. HEALTH_KIT_SETUP.md 파일을 참고하세요.',
+          [
+            { text: '확인' },
+          ]
+        );
+      } else {
+        Alert.alert('연동 실패', result.message || '건강 앱 연동에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('건강 앱 연동 오류:', error);
+      Alert.alert('오류', '건강 앱 연동 중 오류가 발생했습니다.');
+    } finally {
+      setHealthAppConnecting(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -340,6 +391,41 @@ export default function ProfileScreen() {
               <Card.Content>
                 <Text style={styles.cardTitle}>업로드한 코스</Text>
                 <Text style={styles.courseText}>업로드한 코스가 없습니다.</Text>
+              </Card.Content>
+            </Card>
+
+            <Card style={styles.card} mode="outlined">
+              <Card.Content>
+                <Text style={styles.cardTitle}>건강 앱 연동</Text>
+                <Text style={styles.loginText}>
+                  {isHealthAppAvailable() 
+                    ? (healthAppStatus.connected 
+                        ? '건강 앱과 연동되어 있습니다. 러닝 기록이 자동으로 동기화됩니다.'
+                        : '기기의 건강 앱과 연동하여 러닝 데이터를 동기화할 수 있습니다.')
+                    : '웹에서는 건강 앱 연동을 지원하지 않습니다.'}
+                </Text>
+                {isHealthAppAvailable() && !healthAppStatus.connected && (
+                  <Button
+                    mode="contained"
+                    onPress={handleHealthAppConnect}
+                    style={styles.loginButton}
+                    contentStyle={styles.loginButtonContent}
+                    loading={healthAppConnecting}
+                    disabled={healthAppConnecting}
+                  >
+                    {healthAppConnecting ? '연동 중...' : '건강 앱 연동하기'}
+                  </Button>
+                )}
+                {healthAppStatus.connected && (
+                  <Button
+                    mode="outlined"
+                    onPress={handleHealthAppConnect}
+                    style={styles.loginButton}
+                    contentStyle={styles.loginButtonContent}
+                  >
+                    연동 설정 변경
+                  </Button>
+                )}
               </Card.Content>
             </Card>
 

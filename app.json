@@ -17,7 +17,9 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "RunWave는 러닝 경로를 기록하기 위해 위치 정보가 필요합니다.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "RunWave는 백그라운드에서도 러닝 경로를 추적하기 위해 위치 정보가 필요합니다."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "RunWave는 백그라운드에서도 러닝 경로를 추적하기 위해 위치 정보가 필요합니다.",
+        "NSHealthShareUsageDescription": "RunWave는 건강 앱에서 러닝 데이터를 읽기 위해 권한이 필요합니다.",
+        "NSHealthUpdateUsageDescription": "RunWave는 건강 앱에 러닝 데이터를 저장하기 위해 권한이 필요합니다."
       },
       "bundleIdentifier": "com.runwave.app"
     },
@@ -30,7 +32,8 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION"
+        "ACCESS_BACKGROUND_LOCATION",
+        "android.permission.ACTIVITY_RECOGNITION"
       ],
       "package": "com.runwave.app"
     },

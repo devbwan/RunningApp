@@ -1,17 +1,49 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, FlatList, ActivityIndicator } from 'react-native';
-import { Card, Button, Searchbar, Chip } from 'react-native-paper';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { getAllCourses, getTop3Courses } from '../../src/services/courseService';
+import { View, Text, StyleSheet, ScrollView, FlatList, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { Card, Button, Searchbar, Chip, Dialog, Portal, RadioButton, Divider } from 'react-native-paper';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { getAllCourses, getTop3Courses, createCourse } from '../../src/services/courseService';
+import { useAuthStore } from '../../src/stores/authStore';
 import { spacing, typography, colors } from '../../src/theme';
 
 export default function CoursesScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const { user } = useAuthStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState('all'); // 'all', 'nearby', 'popular', 'difficulty'
   const [courses, setCourses] = useState([]);
   const [top3Courses, setTop3Courses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [uploadDialogVisible, setUploadDialogVisible] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [courseName, setCourseName] = useState('');
+  const [courseDescription, setCourseDescription] = useState('');
+  const [courseDifficulty, setCourseDifficulty] = useState('medium');
+  const [courseVisibility, setCourseVisibility] = useState('public');
+  const [uploadRoute, setUploadRoute] = useState(null);
+  const [uploadDistance, setUploadDistance] = useState(0);
+
+  // 러닝 종료 후 코스 업로드 파라미터 처리
+  useEffect(() => {
+    if (params?.uploadRoute) {
+      try {
+        const route = JSON.parse(params.uploadRoute);
+        const distance = parseFloat(params.uploadDistance || '0');
+        if (route && route.length > 0) {
+          setUploadRoute(route);
+          setUploadDistance(distance);
+          setUploadDialogVisible(true);
+          // 거리 기반 기본 이름 설정
+          const distanceKm = (distance / 1000).toFixed(2);
+          setCourseName(`내 러닝 코스 ${distanceKm}km`);
+          setCourseDescription(`러닝 기록에서 생성된 코스입니다.`);
+        }
+      } catch (error) {
+        console.error('코스 업로드 파라미터 파싱 오류:', error);
+      }
+    }
+  }, [params?.uploadRoute]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -100,6 +132,82 @@ export default function CoursesScreen() {
     }
   };
 
+  const handleUploadCourse = async () => {
+    if (!courseName.trim()) {
+      Alert.alert('오류', '코스 이름을 입력해주세요.');
+      return;
+    }
+
+    if (!user) {
+      Alert.alert('오류', '로그인이 필요합니다.');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      // 저장된 업로드 경로 사용
+      const route = uploadRoute || [];
+      const distance = uploadDistance || 0;
+
+      if (route.length === 0) {
+        Alert.alert('오류', '업로드할 경로가 없습니다. 먼저 러닝을 완료해주세요.');
+        setUploading(false);
+        return;
+      }
+
+      // 좌표 배열로 변환
+      const coordinates = route.map((point) => ({
+        lat: point.lat,
+        lng: point.lng,
+      }));
+
+      // 코스 데이터 생성
+      const courseData = {
+        userId: user.id,
+        name: courseName.trim(),
+        description: courseDescription.trim() || '',
+        coordinates,
+        distance,
+        difficulty: courseDifficulty,
+        visibility: courseVisibility,
+        runnerCount: 0,
+        rating: 0,
+        reviewCount: 0,
+      };
+
+      // Firestore에 코스 저장
+      const courseId = await createCourse(courseData);
+      
+      Alert.alert(
+        '업로드 완료',
+        '코스가 성공적으로 업로드되었습니다!',
+        [
+          {
+            text: '확인',
+            onPress: () => {
+              setUploadDialogVisible(false);
+              setCourseName('');
+              setCourseDescription('');
+              setCourseDifficulty('medium');
+              setCourseVisibility('public');
+              setUploadRoute(null);
+              setUploadDistance(0);
+              loadCourses();
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('코스 업로드 오류:', error);
+      Alert.alert(
+        '업로드 실패',
+        error.message || '코스 업로드 중 오류가 발생했습니다. 다시 시도해주세요.'
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const renderCourse = ({ item }) => (
     <Card style={styles.card} mode="outlined" onPress={() => {}}>
       <Card.Content>
@@ -154,8 +262,23 @@ export default function CoursesScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>코스</Text>
-        <Text style={styles.subtitle}>인기 코스와 추천 코스를 만나보세요</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>코스</Text>
+            <Text style={styles.subtitle}>인기 코스와 추천 코스를 만나보세요</Text>
+          </View>
+          {user && (
+            <Button
+              mode="contained"
+              icon="upload"
+              onPress={() => setUploadDialogVisible(true)}
+              style={styles.uploadButton}
+              compact
+            >
+              업로드
+            </Button>
+          )}
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
@@ -242,6 +365,62 @@ export default function CoursesScreen() {
           </View>
         </>
       )}
+
+      <Portal>
+        <Dialog visible={uploadDialogVisible} onDismiss={() => setUploadDialogVisible(false)}>
+          <Dialog.Title>코스 업로드</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="코스 이름"
+              value={courseName}
+              onChangeText={setCourseName}
+              style={styles.dialogInput}
+              mode="outlined"
+            />
+            <TextInput
+              label="설명 (선택)"
+              value={courseDescription}
+              onChangeText={setCourseDescription}
+              style={styles.dialogInput}
+              mode="outlined"
+              multiline
+              numberOfLines={3}
+            />
+            <Text style={styles.dialogLabel}>난이도</Text>
+            <RadioButton.Group
+              onValueChange={setCourseDifficulty}
+              value={courseDifficulty}
+            >
+              <RadioButton.Item label="쉬움" value="easy" />
+              <RadioButton.Item label="보통" value="medium" />
+              <RadioButton.Item label="어려움" value="hard" />
+            </RadioButton.Group>
+            <Divider style={styles.dialogDivider} />
+            <Text style={styles.dialogLabel}>공개 설정</Text>
+            <RadioButton.Group
+              onValueChange={setCourseVisibility}
+              value={courseVisibility}
+            >
+              <RadioButton.Item label="공개" value="public" />
+              <RadioButton.Item label="비공개" value="private" />
+            </RadioButton.Group>
+            <Text style={styles.dialogHint}>
+              현재 러닝 중인 경로를 코스로 업로드할 수 있습니다. 러닝 화면에서 "코스 업로드"를 선택하세요.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setUploadDialogVisible(false)}>취소</Button>
+            <Button
+              mode="contained"
+              onPress={handleUploadCourse}
+              loading={uploading}
+              disabled={!courseName.trim() || uploading}
+            >
+              업로드
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }
@@ -369,5 +548,34 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.md,
     color: '#666',
     marginTop: spacing.md,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerText: {
+    flex: 1,
+  },
+  uploadButton: {
+    marginLeft: spacing.md,
+  },
+  dialogInput: {
+    marginBottom: spacing.md,
+  },
+  dialogLabel: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.medium,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  dialogDivider: {
+    marginVertical: spacing.md,
+  },
+  dialogHint: {
+    fontSize: typography.fontSize.sm,
+    color: '#666',
+    marginTop: spacing.md,
+    fontStyle: 'italic',
   },
 });
