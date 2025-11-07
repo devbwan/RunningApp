@@ -5,7 +5,7 @@
   "homepage": "https://devbwan.github.io/",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
+    "android": "npm run env:android && expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "env:web": "node -e \"const fs = require('fs'); if (fs.existsSync('.env.web')) { fs.copyFileSync('.env.web', '.env'); console.log('✅ .env.web 파일을 .env로 복사했습니다.'); } else { console.error('❌ .env.web 파일이 없습니다. 먼저 생성하세요.'); }\"",
@@ -29,6 +29,7 @@
     "expo-linking": "~8.0.8",
     "expo-location": "~19.0.7",
     "expo-router": "~6.0.14",
+    "expo-speech": "~14.0.0",
     "expo-sqlite": "~16.0.8",
     "expo-status-bar": "~3.0.8",
     "expo-web-browser": "~15.0.8",

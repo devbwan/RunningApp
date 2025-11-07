@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity } from 'react-native';
 import { Button, Card, Surface, ProgressBar, Chip } from 'react-native-paper';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/stores/authStore';
@@ -139,11 +139,13 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.content}>
-        <Link href="/(tabs)/run" asChild>
-          <Button mode="contained" style={styles.startButton} contentStyle={styles.buttonContent}>
-            러닝 시작
-          </Button>
-        </Link>
+        <TouchableOpacity 
+          style={styles.startButton}
+          activeOpacity={0.8}
+          onPress={() => router.push('./run')}
+        >
+          <Text style={styles.startButtonText}>러닝 시작</Text>
+        </TouchableOpacity>
 
         {/* 오늘의 기록 */}
         <Card style={styles.card} mode="outlined">
@@ -308,9 +310,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: colors.primary,
     marginBottom: spacing.md,
+    justifyContent: 'center', // 세로 정렬 중앙
+    alignItems: 'center',     // 가로 정렬 중앙
+    elevation: 0, // Android 그림자 제거
   },
-  buttonContent: {
-    paddingVertical: spacing.md,
+  startButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    includeFontPadding: false, // Android 폰트 패딩 제거
   },
   card: {
     borderRadius: 16,

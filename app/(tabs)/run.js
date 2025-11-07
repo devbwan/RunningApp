@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Platform, Alert } from 'react-native';
-import { Button, Card, Surface } from 'react-native-paper';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Platform, Alert, TouchableOpacity } from 'react-native';
+import { Button, Card, Surface, IconButton } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import * as Speech from 'expo-speech';
 import { useLocationPermission } from '../../src/hooks/useLocationPermission';
 import { useRunningTracker } from '../../src/hooks/useRunningTracker';
 import { useRunStore } from '../../src/stores/runStore';
@@ -13,7 +14,7 @@ import { getUserRewards, saveReward } from '../../src/db/rewardsRepository';
 import { syncRunningSession } from '../../src/services/sessionSyncService';
 import { saveRunningSessionToHealth } from '../../src/services/healthService';
 import { checkRewards } from '../../src/utils/rewardSystem';
-import { spacing, typography } from '../../src/theme';
+import { spacing, typography, colors } from '../../src/theme';
 
 export default function RunScreen() {
   const router = useRouter();
@@ -27,6 +28,8 @@ export default function RunScreen() {
   const [saving, setSaving] = useState(false);
   const [courseMode, setCourseMode] = useState(false);
   const [courseRoute, setCourseRoute] = useState([]);
+  const [voiceGuideEnabled, setVoiceGuideEnabled] = useState(true);
+  const lastAnnouncedKm = useRef(0);
 
   // 코스 모드 확인
   useEffect(() => {
@@ -116,8 +119,49 @@ export default function RunScreen() {
     } else if (!isRunning) {
       setAvgPace(0);
       setCalories(0);
+      lastAnnouncedKm.current = 0; // 러닝 종료 시 초기화
     }
   }, [isRunning, distance, duration]);
+
+  // 음성 가이드: 1km마다 알림
+  useEffect(() => {
+    if (!isRunning || !voiceGuideEnabled || distance < 1000) {
+      return;
+    }
+
+    const currentKm = Math.floor(distance / 1000);
+    const lastKm = lastAnnouncedKm.current;
+
+    // 1km 단위로 증가했을 때만 알림
+    if (currentKm > lastKm) {
+      lastAnnouncedKm.current = currentKm;
+      
+      // 음성 알림 생성
+      const paceInKm = avgPace > 0 ? avgPace : (pace > 0 ? pace : 0);
+      const paceMin = Math.floor(paceInKm / 60);
+      const paceSec = Math.round(paceInKm % 60);
+      const paceText = paceInKm > 0 ? `${paceMin}분 ${paceSec}초` : '';
+      
+      const message = `현재 ${currentKm}킬로미터를 달렸습니다. ${paceText ? `페이스 ${paceText} 킬로미터` : ''}`;
+      
+      // expo-speech 사용 (웹에서는 Web Speech API 사용)
+      if (Platform.OS === 'web') {
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(message);
+          utterance.lang = 'ko-KR';
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+          window.speechSynthesis.speak(utterance);
+        }
+      } else {
+        Speech.speak(message, {
+          language: 'ko-KR',
+          pitch: 1.0,
+          rate: 1.0,
+        });
+      }
+    }
+  }, [isRunning, distance, voiceGuideEnabled, avgPace, pace]);
 
   const handleStart = () => {
     start();
@@ -132,41 +176,107 @@ export default function RunScreen() {
   };
 
   const handleStop = async () => {
-    // 50미터 이하는 저장하지 않고 바로 종료
-    if (distance < 50) {
-      Alert.alert(
-        '러닝 종료',
-        `${formatDistance(distance)}, ${formatTime(duration)} 러닝하셨습니다.\n거리가 50m 미만이라 저장되지 않습니다.`,
-        [
-          {
-            text: '확인',
-            onPress: () => {
-              useRunStore.getState().reset();
-            },
-          },
-        ]
-      );
+    console.log('[Run] 종료 버튼 클릭됨');
+    console.log('[Run] 현재 상태:', { distance, duration, isRunning, isPaused, saving });
+    
+    // 저장 중이면 무시
+    if (saving) {
+      console.log('[Run] 저장 중이므로 종료 무시');
       return;
     }
+    
+    try {
+      // 50미터 이하는 저장하지 않고 바로 종료
+      if (distance < 50) {
+        console.log('[Run] 거리 50m 미만 - 바로 종료');
+        
+        // Android 호환성을 위해 Promise로 래핑
+        const result = await new Promise((resolve) => {
+          if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+            const confirmed = window.confirm(
+              `${formatDistance(distance)}, ${formatTime(duration)} 러닝하셨습니다.\n거리가 50m 미만이라 저장되지 않습니다.\n종료하시겠습니까?`
+            );
+            resolve(confirmed);
+          } else {
+            Alert.alert(
+              '러닝 종료',
+              `${formatDistance(distance)}, ${formatTime(duration)} 러닝하셨습니다.\n거리가 50m 미만이라 저장되지 않습니다.`,
+              [
+                {
+                  text: '확인',
+                  onPress: () => resolve(true),
+                },
+                {
+                  text: '취소',
+                  style: 'cancel',
+                  onPress: () => resolve(false),
+                },
+              ],
+              { cancelable: true, onDismiss: () => resolve(false) }
+            );
+          }
+        });
+        
+        if (result) {
+          console.log('[Run] 상태 리셋');
+          stop(); // useRunningTracker의 stop 호출
+          useRunStore.getState().reset();
+        }
+        return;
+      }
 
-    // 50미터 이상은 사용자에게 저장 여부 확인
-    Alert.alert(
-      '러닝 종료',
-      `총 ${formatDistance(distance)}, ${formatTime(duration)} 러닝하셨습니다.\n저장하시겠습니까?`,
-      [
-        {
-          text: '저장 안 함',
-          style: 'destructive',
-          onPress: () => {
-            useRunStore.getState().reset();
-          },
-        },
-        {
-          text: '저장',
-          onPress: async () => {
-            setSaving(true);
-            try {
-              const endTime = Date.now();
+      // 50미터 이상은 사용자에게 저장 여부 확인
+      console.log('[Run] 거리 50m 이상 - 저장 여부 확인');
+      
+      const saveResult = await new Promise((resolve) => {
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+          const shouldSave = window.confirm(
+            `총 ${formatDistance(distance)}, ${formatTime(duration)} 러닝하셨습니다.\n저장하시겠습니까?`
+          );
+          resolve(shouldSave ? 'save' : 'discard');
+        } else {
+          Alert.alert(
+            '러닝 종료',
+            `총 ${formatDistance(distance)}, ${formatTime(duration)} 러닝하셨습니다.\n저장하시겠습니까?`,
+            [
+              {
+                text: '저장 안 함',
+                style: 'destructive',
+                onPress: () => resolve('discard'),
+              },
+              {
+                text: '저장',
+                onPress: () => resolve('save'),
+              },
+              {
+                text: '취소',
+                style: 'cancel',
+                onPress: () => resolve('cancel'),
+              },
+            ],
+            { cancelable: true, onDismiss: () => resolve('cancel') }
+          );
+        }
+      });
+      
+      if (saveResult === 'cancel') {
+        console.log('[Run] 사용자가 취소');
+        return;
+      }
+      
+      if (saveResult === 'discard') {
+        console.log('[Run] 저장 안 함 - 상태 리셋');
+        stop(); // useRunningTracker의 stop 호출
+        useRunStore.getState().reset();
+        return;
+      }
+      
+      // 저장하기
+      console.log('[Run] 저장 시작');
+      setSaving(true);
+      
+      try {
+        const endTime = Date.now();
               const caloriesValue = calculateCalories(distance, duration);
               const finalAvgPace = avgPace > 0 ? avgPace : (pace > 0 ? pace : null);
               
@@ -246,61 +356,95 @@ export default function RunScreen() {
               }
 
               // 상태 리셋
+              stop(); // useRunningTracker의 stop 호출
               useRunStore.getState().reset();
+              
+              console.log('[Run] 저장 완료, 메달 체크:', newRewards.length);
               
               // 메달 획득 시 특별 메시지
               if (newRewards.length > 0) {
                 const rewardTitles = newRewards.map((r) => r.title).join(', ');
-                Alert.alert(
-                  '메달 획득! 🎉',
-                  `${rewardTitles} 메달을 획득하셨습니다!`,
-                  [
-                    { 
-                      text: '코스로 업로드', 
-                      onPress: () => {
-                        router.push({
-                          pathname: '/(tabs)/courses',
-                          params: { 
-                            uploadRoute: JSON.stringify(route),
-                            uploadDistance: distance.toString(),
-                          },
-                        });
-                      },
+                
+                const medalResult = await new Promise((resolve) => {
+                  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+                    const upload = window.confirm(
+                      `${rewardTitles} 메달을 획득하셨습니다!\n\n코스로 업로드하시겠습니까?`
+                    );
+                    resolve(upload ? 'upload' : 'ok');
+                  } else {
+                    Alert.alert(
+                      '메달 획득! 🎉',
+                      `${rewardTitles} 메달을 획득하셨습니다!`,
+                      [
+                        { 
+                          text: '코스로 업로드', 
+                          onPress: () => resolve('upload'),
+                        },
+                        { text: '확인', onPress: () => resolve('ok') },
+                      ],
+                      { cancelable: false }
+                    );
+                  }
+                });
+                
+                if (medalResult === 'upload') {
+                  router.push({
+                    pathname: '/(tabs)/courses',
+                    params: { 
+                      uploadRoute: JSON.stringify(route),
+                      uploadDistance: distance.toString(),
                     },
-                    { text: '확인', onPress: () => router.push('/(tabs)/records') },
-                  ]
-                );
+                  });
+                } else {
+                  router.push('/(tabs)/records');
+                }
               } else {
-                Alert.alert(
-                  '저장 완료', 
-                  '러닝 기록이 저장되었습니다.',
-                  [
-                    { 
-                      text: '코스로 업로드', 
-                      onPress: () => {
-                        router.push({
-                          pathname: '/(tabs)/courses',
-                          params: { 
-                            uploadRoute: JSON.stringify(route),
-                            uploadDistance: distance.toString(),
-                          },
-                        });
-                      },
+                const saveCompleteResult = await new Promise((resolve) => {
+                  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+                    const upload = window.confirm(
+                      '러닝 기록이 저장되었습니다.\n\n코스로 업로드하시겠습니까?'
+                    );
+                    resolve(upload ? 'upload' : 'ok');
+                  } else {
+                    Alert.alert(
+                      '저장 완료', 
+                      '러닝 기록이 저장되었습니다.',
+                      [
+                        { 
+                          text: '코스로 업로드', 
+                          onPress: () => resolve('upload'),
+                        },
+                        { text: '확인', onPress: () => resolve('ok') },
+                      ],
+                      { cancelable: false }
+                    );
+                  }
+                });
+                
+                if (saveCompleteResult === 'upload') {
+                  router.push({
+                    pathname: '/(tabs)/courses',
+                    params: { 
+                      uploadRoute: JSON.stringify(route),
+                      uploadDistance: distance.toString(),
                     },
-                    { text: '확인', onPress: () => router.push('/(tabs)/records') },
-                  ]
-                );
+                  });
+                } else {
+                  router.push('/(tabs)/records');
+                }
               }
-            } catch (error) {
-              console.error('저장 실패:', error);
-              Alert.alert('저장 실패', '기록 저장 중 오류가 발생했습니다.');
-            } finally {
-              setSaving(false);
-            }
-          },
-        },
-      ]
-    );
+      } catch (error) {
+        console.error('[Run] 저장 실패:', error);
+        Alert.alert('저장 실패', `기록 저장 중 오류가 발생했습니다.\n\n${error.message || '알 수 없는 오류'}`);
+      } finally {
+        setSaving(false);
+        stop(); // useRunningTracker의 stop 호출
+      }
+    } catch (error) {
+      console.error('[Run] 종료 처리 오류:', error);
+      Alert.alert('오류', `러닝 종료 중 오류가 발생했습니다.\n\n${error.message || '알 수 없는 오류'}`);
+      setSaving(false);
+    }
   };
 
   return (
@@ -317,6 +461,15 @@ export default function RunScreen() {
                 <Text style={styles.courseModeText}>코스 모드</Text>
               </View>
             )}
+            <View style={styles.voiceGuideToggle}>
+              <IconButton
+                icon={voiceGuideEnabled ? 'volume-high' : 'volume-off'}
+                size={24}
+                onPress={() => setVoiceGuideEnabled(!voiceGuideEnabled)}
+                style={styles.voiceButton}
+                iconColor={voiceGuideEnabled ? '#fff' : '#999'}
+              />
+            </View>
           </View>
 
           <Surface style={styles.statsContainer} elevation={2}>
@@ -354,43 +507,48 @@ export default function RunScreen() {
 
           <View style={styles.controlsContainer}>
             {!isRunning && !isPaused ? (
-              <Button
-                mode="contained"
+              <TouchableOpacity
                 onPress={handleStart}
-                style={styles.startButton}
-                contentStyle={styles.buttonContent}
+                style={[styles.startButton, saving && styles.buttonDisabled]}
                 disabled={saving}
+                activeOpacity={0.8}
               >
-                러닝 시작
-              </Button>
+                <Text style={styles.startButtonText}>러닝 시작</Text>
+              </TouchableOpacity>
             ) : (
               <View style={styles.runningControls}>
                 {isPaused ? (
-                  <Button
-                    mode="contained"
+                  <TouchableOpacity
                     onPress={handleResume}
                     style={styles.resumeButton}
+                    activeOpacity={0.8}
                   >
-                    재개
-                  </Button>
+                    <Text style={styles.controlButtonText}>재개</Text>
+                  </TouchableOpacity>
                 ) : (
-                  <Button
-                    mode="outlined"
+                  <TouchableOpacity
                     onPress={handlePause}
                     style={styles.controlButton}
+                    activeOpacity={0.8}
                   >
-                    일시정지
-                  </Button>
+                    <Text style={styles.controlButtonOutlinedText}>일시정지</Text>
+                  </TouchableOpacity>
                 )}
-                <Button
-                  mode="contained"
-                  onPress={handleStop}
-                  style={styles.stopButton}
+                <TouchableOpacity
+                  onPress={() => {
+                    console.log('[Run] 종료 버튼 클릭 - handleStop 호출');
+                    handleStop();
+                  }}
+                  style={[styles.stopButton, saving && styles.buttonDisabled]}
                   disabled={saving}
-                  loading={saving}
+                  activeOpacity={0.8}
                 >
-                  {saving ? '저장 중...' : '종료'}
-                </Button>
+                  {saving ? (
+                    <Text style={styles.stopButtonText}>저장 중...</Text>
+                  ) : (
+                    <Text style={styles.stopButtonText}>종료</Text>
+                  )}
+                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -445,9 +603,19 @@ const styles = StyleSheet.create({
   startButton: {
     height: 56,
     borderRadius: 16,
+    backgroundColor: colors.primary,
+    justifyContent: 'center', // 세로 정렬 중앙
+    alignItems: 'center',     // 가로 정렬 중앙
+    elevation: 0, // Android 그림자 제거
   },
-  buttonContent: {
-    paddingVertical: spacing.md,
+  startButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    includeFontPadding: false, // Android 폰트 패딩 제거
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   runningControls: {
     flexDirection: 'row',
@@ -457,18 +625,47 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 56,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  controlButtonOutlinedText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+    includeFontPadding: false,
   },
   resumeButton: {
     flex: 1,
     height: 56,
     borderRadius: 16,
     backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 0,
+  },
+  controlButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    includeFontPadding: false,
   },
   stopButton: {
     flex: 1,
     height: 56,
     borderRadius: 16,
     backgroundColor: '#F44336',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 0,
+  },
+  stopButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    includeFontPadding: false,
   },
   permissionContainer: {
     flex: 1,
@@ -498,5 +695,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium,
+  },
+  voiceGuideToggle: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  voiceButton: {
+    margin: 0,
   },
 });

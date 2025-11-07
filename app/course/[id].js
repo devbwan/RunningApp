@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { Card, Button, Chip, Divider, Surface } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getCourseById } from '../../src/services/courseService';
@@ -180,15 +180,28 @@ export default function CourseDetailScreen() {
             <Text style={styles.cardTitle}>코스 정보</Text>
             <Divider style={styles.divider} />
             
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>시작점</Text>
-              <Text style={styles.infoValue}>여의도 한강공원</Text>
-            </View>
-            
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>종료점</Text>
-              <Text style={styles.infoValue}>잠실 한강공원</Text>
-            </View>
+            {route.length > 0 && (
+              <>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>시작점</Text>
+                  <Text style={styles.infoValue}>
+                    {route[0].lat.toFixed(6)}, {route[0].lng.toFixed(6)}
+                  </Text>
+                </View>
+                
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>종료점</Text>
+                  <Text style={styles.infoValue}>
+                    {route[route.length - 1].lat.toFixed(6)}, {route[route.length - 1].lng.toFixed(6)}
+                  </Text>
+                </View>
+                
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>경로 포인트</Text>
+                  <Text style={styles.infoValue}>{route.length}개</Text>
+                </View>
+              </>
+            )}
 
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>생성일</Text>
@@ -218,14 +231,13 @@ export default function CourseDetailScreen() {
       </View>
 
       <View style={styles.footer}>
-        <Button
-          mode="contained"
+        <TouchableOpacity
           onPress={handleStartRun}
           style={styles.startButton}
-          contentStyle={styles.buttonContent}
+          activeOpacity={0.8}
         >
-          이 코스로 러닝 시작
-        </Button>
+          <Text style={styles.startButtonText}>이 코스로 러닝 시작</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -333,9 +345,15 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 16,
     backgroundColor: colors.primary,
+    justifyContent: 'center', // 세로 정렬 중앙
+    alignItems: 'center',     // 가로 정렬 중앙
+    elevation: 0, // Android 그림자 제거
   },
-  buttonContent: {
-    paddingVertical: spacing.md,
+  startButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    includeFontPadding: false, // Android 폰트 패딩 제거
   },
   loadingContainer: {
     flex: 1,

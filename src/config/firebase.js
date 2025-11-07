@@ -87,14 +87,25 @@ if (isValidFirebaseConfig()) {
     // Firestore 초기화 (오류가 있어도 앱은 계속 작동)
     try {
       db = getFirestore(app);
-      // Firestore 연결 테스트는 실제 쿼리 시점에 수행
-      if (__DEV__) {
-        console.log('[Firebase] Firestore 초기화 성공');
+      
+      // Firestore 설정: 오프라인 지속성 비활성화 (웹에서는 문제가 있을 수 있음)
+      if (Platform.OS === 'web') {
+        // 웹에서는 기본 설정 사용
+        if (__DEV__) {
+          console.log('[Firebase] Firestore 초기화 성공 (웹)');
+        }
+      } else {
+        // 모바일에서는 오프라인 지속성 사용 가능
+        if (__DEV__) {
+          console.log('[Firebase] Firestore 초기화 성공 (모바일)');
+        }
       }
     } catch (dbError) {
-      console.warn('[Firebase] Firestore 초기화 오류:', dbError);
-      console.warn('[Firebase] Firestore가 설정되지 않았습니다. 코스 데이터는 사용할 수 없지만, 로그인은 가능합니다.');
-      console.warn('[Firebase] Firebase Console > Firestore Database에서 데이터베이스를 생성하세요.');
+      if (__DEV__) {
+        console.warn('[Firebase] Firestore 초기화 오류:', dbError);
+        console.warn('[Firebase] Firestore가 설정되지 않았습니다. 코스 데이터는 사용할 수 없지만, 로그인은 가능합니다.');
+        console.warn('[Firebase] Firebase Console > Firestore Database에서 데이터베이스를 생성하세요.');
+      }
       db = null;
     }
     

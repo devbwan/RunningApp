@@ -158,12 +158,17 @@ export const signOut = async () => {
 // 현재 사용자 가져오기
 export const getCurrentUser = async () => {
   try {
+    console.log('[AuthService] getCurrentUser 시작');
+    console.log('[AuthService] auth 객체:', { hasAuth: !!auth, hasCurrentUser: !!auth?.currentUser });
+    
     // Firebase Auth 상태 확인
     const firebaseUser = auth?.currentUser;
+    console.log('[AuthService] Firebase 사용자:', { hasUser: !!firebaseUser, uid: firebaseUser?.uid });
     
     // AsyncStorage에서 사용자 정보 확인
     const userJson = await AsyncStorage.getItem(USER_STORAGE_KEY);
     const provider = await AsyncStorage.getItem(AUTH_PROVIDER_KEY);
+    console.log('[AuthService] AsyncStorage:', { hasUserJson: !!userJson, provider });
 
     // Firebase Auth에 사용자가 있지만 AsyncStorage에 없는 경우 (로그아웃 후 새로고침 시나리오)
     if (firebaseUser && !userJson) {

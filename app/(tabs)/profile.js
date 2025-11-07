@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Card, Surface, Avatar, Divider, Chip, Button } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -15,6 +15,7 @@ import { spacing, typography, colors } from '../../src/theme';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const scrollViewRef = useRef(null);
   // Zustand 스토어에서 상태 구독 (변경 시 자동 리렌더링)
   const user = useAuthStore((state) => state.user);
   const authProvider = useAuthStore((state) => state.authProvider);
@@ -188,6 +189,11 @@ export default function ProfileScreen() {
         setLoading(true);
         await loadData();
         setLoading(false);
+        
+        // 7. 스크롤을 최상단으로 이동
+        if (scrollViewRef.current) {
+          scrollViewRef.current.scrollTo({ y: 0, animated: true });
+        }
         
         console.log('[Profile] 로그아웃 완료 및 데이터 재로드 완료');
       } catch (error) {

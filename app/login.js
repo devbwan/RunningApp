@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Image, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { Button, Card, Surface } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
@@ -66,7 +66,16 @@ export default function LoginScreen() {
     setError(null);
     try {
       const user = await signInWithGoogle();
-      await signIn(user, 'google');
+      const mergeResult = await signIn(user, 'google');
+      
+      // 데이터 병합 결과 알림 (선택적)
+      if (mergeResult && (mergeResult.sessionsMerged > 0 || mergeResult.rewardsMerged > 0)) {
+        const message = `게스트 모드에서 생성한 데이터가 병합되었습니다.\n세션: ${mergeResult.sessionsMerged}개, 메달: ${mergeResult.rewardsMerged}개`;
+        if (__DEV__) {
+          console.log('[Login]', message);
+        }
+      }
+      
       router.replace('/(tabs)/profile');
     } catch (err) {
       console.error('Google 로그인 실패:', err);
@@ -110,16 +119,18 @@ export default function LoginScreen() {
         )}
 
         <View style={styles.buttonsContainer}>
-          <Button
-            mode="contained"
+          <TouchableOpacity
             onPress={handleGoogleLogin}
-            style={styles.googleButton}
-            contentStyle={styles.buttonContent}
+            style={[styles.googleButton, loading && styles.buttonDisabled]}
             disabled={loading}
-            icon="google"
+            activeOpacity={0.8}
           >
-            {loading ? '로그인 중...' : 'Google로 로그인'}
-          </Button>
+            {loading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.googleButtonText}>Google로 로그인</Text>
+            )}
+          </TouchableOpacity>
 
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
@@ -192,12 +203,21 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 16,
     backgroundColor: '#4285F4',
+    justifyContent: 'center', // 세로 정렬 중앙
+    alignItems: 'center',     // 가로 정렬 중앙
+    elevation: 0, // Android 그림자 제거
+  },
+  googleButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    includeFontPadding: false, // Android 폰트 패딩 제거
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   guestButton: {
     height: 48,
-  },
-  buttonContent: {
-    paddingVertical: spacing.md,
   },
   divider: {
     flexDirection: 'row',

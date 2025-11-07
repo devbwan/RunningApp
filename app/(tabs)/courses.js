@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, FlatList, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, FlatList, ActivityIndicator, Alert, TextInput, TouchableOpacity, Platform } from 'react-native';
 import { Card, Button, Searchbar, Chip, Dialog, Portal, RadioButton, Divider } from 'react-native-paper';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { getAllCourses, getTop3Courses, createCourse } from '../../src/services/courseService';
 import { useAuthStore } from '../../src/stores/authStore';
 import { spacing, typography, colors } from '../../src/theme';
+import { getRunningRoutesFromOSM, getPopularRoutesFromOSM } from '../../src/services/openStreetMapService';
+import { parseGPXSimple, parseGPXFromURL } from '../../src/utils/gpxParser';
 
 export default function CoursesScreen() {
   const router = useRouter();
@@ -23,6 +25,16 @@ export default function CoursesScreen() {
   const [courseVisibility, setCourseVisibility] = useState('public');
   const [uploadRoute, setUploadRoute] = useState(null);
   const [uploadDistance, setUploadDistance] = useState(0);
+  const [importDialogVisible, setImportDialogVisible] = useState(false);
+  const [importingOSM, setImportingOSM] = useState(false);
+  const [importingGPX, setImportingGPX] = useState(false);
+  const [gpxUrl, setGpxUrl] = useState('');
+  const [gpxFileContent, setGpxFileContent] = useState('');
+
+  // 다이얼로그 상태 디버깅
+  useEffect(() => {
+    console.log('[Courses] importDialogVisible 상태 변경:', importDialogVisible);
+  }, [importDialogVisible]);
 
   // 러닝 종료 후 코스 업로드 파라미터 처리
   useEffect(() => {
@@ -129,6 +141,179 @@ export default function CoursesScreen() {
         return '어려움';
       default:
         return '';
+    }
+  };
+
+  // OpenStreetMap에서 코스 가져오기
+  const handleImportFromOSM = async () => {
+    setImportingOSM(true);
+    try {
+      console.log('[Courses] OpenStreetMap에서 코스 가져오기 시작');
+      
+      // Location 모듈 동적 import (Android 호환성)
+      const LocationModule = await import('expo-location');
+      const Location = LocationModule.default || LocationModule;
+      
+      // 현재 위치 가져오기
+      console.log('[Courses] 위치 권한 요청 중...');
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('권한 필요', '위치 정보 접근 권한이 필요합니다.');
+        setImportingOSM(false);
+        return;
+      }
+
+      console.log('[Courses] 현재 위치 가져오는 중...');
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = location.coords;
+      console.log('[Courses] 현재 위치:', latitude, longitude);
+
+      // OpenStreetMap에서 경로 가져오기
+      console.log('[Courses] OpenStreetMap API 호출 중...');
+      const routes = await getPopularRoutesFromOSM(latitude, longitude, 5);
+      console.log('[Courses] 찾은 경로 수:', routes.length);
+
+      if (routes.length === 0) {
+        Alert.alert(
+          '알림', 
+          '주변에 러닝 경로를 찾을 수 없습니다.\n\n다른 방법을 시도해보세요:\n- GPX 파일 가져오기\n- 수동으로 코스 업로드'
+        );
+        setImportingOSM(false);
+        return;
+      }
+
+      // 첫 번째 경로를 코스로 업로드
+      const route = routes[0];
+      console.log('[Courses] 선택한 경로:', route.name, route.distance, 'm');
+      
+      if (!user) {
+        Alert.alert('오류', '코스를 저장하려면 로그인이 필요합니다.');
+        setImportingOSM(false);
+        return;
+      }
+
+      const courseData = {
+        userId: user.id,
+        name: route.name,
+        description: route.description,
+        coordinates: route.coordinates,
+        distance: route.distance,
+        difficulty: route.difficulty,
+        visibility: 'public',
+        runnerCount: 0,
+        rating: 0,
+        reviewCount: 0,
+      };
+
+      console.log('[Courses] Firestore에 코스 저장 중...');
+      try {
+        await createCourse(courseData);
+        console.log('[Courses] 코스 저장 완료');
+        
+        Alert.alert(
+          '가져오기 완료',
+          `${route.name} 코스(${(route.distance / 1000).toFixed(2)}km)를 성공적으로 가져왔습니다!`,
+          [
+            {
+              text: '확인',
+              onPress: () => {
+                setImportDialogVisible(false);
+                loadCourses();
+              },
+            },
+          ]
+        );
+      } catch (createError) {
+        console.error('[Courses] 코스 저장 오류:', createError);
+        Alert.alert(
+          '저장 실패',
+          `코스를 가져왔지만 저장에 실패했습니다.\n\n오류: ${createError.message || '알 수 없는 오류'}\n\nFirestore가 설정되지 않았을 수 있습니다.`
+        );
+      }
+    } catch (error) {
+      console.error('[Courses] OSM 가져오기 오류:', error);
+      Alert.alert(
+        '오류', 
+        `코스를 가져오는 중 오류가 발생했습니다.\n\n${error.message || '알 수 없는 오류'}\n\n다른 방법을 시도해보세요:\n- GPX 파일 가져오기\n- 수동으로 코스 업로드`
+      );
+    } finally {
+      setImportingOSM(false);
+    }
+  };
+
+  // GPX 파일에서 코스 가져오기
+  const handleImportFromGPX = async () => {
+    if (!gpxUrl.trim() && !gpxFileContent.trim()) {
+      Alert.alert('오류', 'GPX URL 또는 파일 내용을 입력해주세요.');
+      return;
+    }
+
+    setImportingGPX(true);
+    try {
+      console.log('[Courses] GPX 파일 가져오기 시작');
+      let courseData;
+
+      if (gpxUrl.trim()) {
+        console.log('[Courses] GPX URL에서 가져오기:', gpxUrl);
+        // URL에서 GPX 파일 가져오기
+        courseData = await parseGPXFromURL(gpxUrl);
+      } else if (gpxFileContent.trim()) {
+        console.log('[Courses] GPX 파일 내용 파싱 중...');
+        // 파일 내용 파싱
+        courseData = parseGPXSimple(gpxFileContent);
+      }
+
+      console.log('[Courses] GPX 파싱 완료:', courseData.name, courseData.distance, 'm');
+
+      if (!user) {
+        Alert.alert('오류', '코스를 저장하려면 로그인이 필요합니다.');
+        setImportingGPX(false);
+        return;
+      }
+
+      const finalCourseData = {
+        userId: user.id,
+        ...courseData,
+        visibility: 'public',
+      };
+
+      console.log('[Courses] Firestore에 코스 저장 중...');
+      try {
+        await createCourse(finalCourseData);
+        console.log('[Courses] 코스 저장 완료');
+        
+        Alert.alert(
+          '가져오기 완료',
+          `${courseData.name} 코스(${(courseData.distance / 1000).toFixed(2)}km)를 성공적으로 가져왔습니다!`,
+          [
+            {
+              text: '확인',
+              onPress: () => {
+                setImportDialogVisible(false);
+                setGpxUrl('');
+                setGpxFileContent('');
+                loadCourses();
+              },
+            },
+          ]
+        );
+      } catch (createError) {
+        console.error('[Courses] 코스 저장 오류:', createError);
+        Alert.alert(
+          '저장 실패',
+          `GPX 파일을 파싱했지만 저장에 실패했습니다.\n\n오류: ${createError.message || '알 수 없는 오류'}\n\nFirestore가 설정되지 않았을 수 있습니다.`
+        );
+      }
+    } catch (error) {
+      console.error('[Courses] GPX 가져오기 오류:', error);
+      Alert.alert(
+        '오류', 
+        `GPX 파일을 파싱하는 중 오류가 발생했습니다.\n\n${error.message || '알 수 없는 오류'}\n\nGPX 파일 형식이 올바른지 확인해주세요.`
+      );
+    } finally {
+      setImportingGPX(false);
     }
   };
 
@@ -267,17 +452,42 @@ export default function CoursesScreen() {
             <Text style={styles.title}>코스</Text>
             <Text style={styles.subtitle}>인기 코스와 추천 코스를 만나보세요</Text>
           </View>
-          {user && (
-            <Button
-              mode="contained"
-              icon="upload"
-              onPress={() => setUploadDialogVisible(true)}
-              style={styles.uploadButton}
-              compact
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              onPress={() => {
+                console.log('=== 가져오기 버튼 클릭 시작 ===');
+                Alert.alert('테스트', '가져오기 버튼이 클릭되었습니다!');
+                
+                console.log('[Courses] 가져오기 버튼 클릭됨');
+                console.log('[Courses] 현재 user:', user);
+                console.log('[Courses] 현재 importDialogVisible:', importDialogVisible);
+                
+                if (!user) {
+                  console.log('[Courses] 로그인 필요 - Alert 표시');
+                  Alert.alert('로그인 필요', '코스를 가져오려면 로그인이 필요합니다.');
+                  return;
+                }
+                
+                console.log('[Courses] 다이얼로그 열기 시도');
+                setImportDialogVisible(true);
+                console.log('[Courses] setImportDialogVisible(true) 호출 완료');
+              }}
+              style={[styles.importButtonTouchable, styles.importButton]}
             >
-              업로드
-            </Button>
-          )}
+              <Text style={styles.importButtonText}>가져오기</Text>
+            </TouchableOpacity>
+            {user && (
+              <Button
+                mode="contained"
+                icon="upload"
+                onPress={() => setUploadDialogVisible(true)}
+                style={styles.uploadButton}
+                compact
+              >
+                업로드
+              </Button>
+            )}
+          </View>
         </View>
       </View>
 
@@ -420,6 +630,102 @@ export default function CoursesScreen() {
             </Button>
           </Dialog.Actions>
         </Dialog>
+
+        <Dialog 
+          visible={importDialogVisible} 
+          onDismiss={() => {
+            console.log('[Courses] 다이얼로그 닫기');
+            if (!importingOSM && !importingGPX) {
+              setImportDialogVisible(false);
+              setGpxUrl('');
+              setGpxFileContent('');
+            }
+          }}
+        >
+          <Dialog.Title>코스 가져오기</Dialog.Title>
+          <Dialog.Content>
+            {(importingOSM || importingGPX) && (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={styles.loadingText}>
+                  {importingOSM ? 'OpenStreetMap에서 경로를 찾는 중...' : 'GPX 파일을 처리하는 중...'}
+                </Text>
+              </View>
+            )}
+            <Text style={styles.dialogLabel}>방법 선택</Text>
+            <View style={styles.importMethods}>
+              <Button
+                mode="outlined"
+                icon="map"
+                onPress={() => {
+                  console.log('[Courses] OpenStreetMap 가져오기 버튼 클릭');
+                  handleImportFromOSM();
+                }}
+                style={styles.importMethodButton}
+                loading={importingOSM}
+                disabled={importingOSM || importingGPX}
+              >
+                OpenStreetMap에서 가져오기
+              </Button>
+              <Text style={styles.methodDescription}>
+                현재 위치 주변의 러닝 경로를 자동으로 찾아 가져옵니다.
+              </Text>
+            </View>
+
+            <Divider style={styles.dialogDivider} />
+
+            <Text style={styles.dialogLabel}>GPX 파일 가져오기</Text>
+            <TextInput
+              label="GPX 파일 URL"
+              value={gpxUrl}
+              onChangeText={setGpxUrl}
+              style={styles.dialogInput}
+              mode="outlined"
+              placeholder="https://example.com/running-course.gpx"
+            />
+            <Text style={styles.dialogHint}>또는</Text>
+            <TextInput
+              label="GPX 파일 내용 (XML)"
+              value={gpxFileContent}
+              onChangeText={setGpxFileContent}
+              style={styles.dialogInput}
+              mode="outlined"
+              multiline
+              numberOfLines={5}
+              placeholder="<gpx>...</gpx>"
+            />
+            <Button
+              mode="contained"
+              icon="file-upload"
+              onPress={() => {
+                console.log('[Courses] GPX 가져오기 버튼 클릭');
+                handleImportFromGPX();
+              }}
+              style={styles.importGPXButton}
+              loading={importingGPX}
+              disabled={importingGPX || importingOSM || (!gpxUrl.trim() && !gpxFileContent.trim())}
+            >
+              GPX 파일 가져오기
+            </Button>
+            <Text style={styles.dialogHint}>
+              GPX 파일은 Wikiloc, AllTrails 등에서 다운로드할 수 있습니다.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button 
+              onPress={() => {
+                if (!importingOSM && !importingGPX) {
+                  setImportDialogVisible(false);
+                  setGpxUrl('');
+                  setGpxFileContent('');
+                }
+              }}
+              disabled={importingOSM || importingGPX}
+            >
+              취소
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
     </View>
   );
@@ -557,8 +863,56 @@ const styles = StyleSheet.create({
   headerText: {
     flex: 1,
   },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   uploadButton: {
-    marginLeft: spacing.md,
+    marginLeft: spacing.sm,
+  },
+  importButton: {
+    marginLeft: 0,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: 'transparent',
+  },
+  importButtonTouchable: {
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  importButtonText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+  },
+  importMethods: {
+    marginBottom: spacing.md,
+  },
+  importMethodButton: {
+    marginBottom: spacing.xs,
+  },
+  methodDescription: {
+    fontSize: typography.fontSize.sm,
+    color: '#666',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  importGPXButton: {
+    marginTop: spacing.md,
+  },
+  loadingOverlay: {
+    alignItems: 'center',
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: typography.fontSize.sm,
+    color: '#666',
   },
   dialogInput: {
     marginBottom: spacing.md,
